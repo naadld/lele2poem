@@ -19,13 +19,18 @@ VOICE_SAMPLE_PATH = os.path.join(BASE_DIR, "assets", "Vegetarian Wolf.wav")
 
 def save_tensor_as_wav(wav_tensor, output_path: str, sample_rate: int = 24000):
     """
-    Save torch audio tensor directly via scipy/soundfile to prevent torchcodec dependency errors.
+    Save torch audio tensor directly to 1D mono PCM int16 WAV file.
+    Ensures shape is strictly 1D (samples,) to prevent scipy multi-channel struct errors.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    if hasattr(wav_tensor, "squeeze"):
-        audio_np = wav_tensor.squeeze().cpu().numpy()
+    
+    if hasattr(wav_tensor, "cpu"):
+        audio_np = wav_tensor.cpu().numpy()
     else:
         audio_np = np.array(wav_tensor)
+
+    # Flatten to 1D mono array (samples,)
+    audio_np = np.squeeze(audio_np).flatten()
 
     # Normalize & convert to int16 PCM
     if audio_np.dtype != np.int16:
@@ -35,7 +40,7 @@ def save_tensor_as_wav(wav_tensor, output_path: str, sample_rate: int = 24000):
         audio_np = (audio_np * 32767).clip(-32768, 32767).astype(np.int16)
 
     wavfile.write(output_path, sample_rate, audio_np)
-    logger.info(f"[OMNIVOICE] Saved clean audio wav to: {output_path}")
+    logger.info(f"[OMNIVOICE] Saved clean audio wav ({len(audio_np)} samples) to: {output_path}")
 
 
 def generate_poem_audio_omnivoice_strict(

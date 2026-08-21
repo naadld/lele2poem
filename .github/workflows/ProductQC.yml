@@ -16,6 +16,10 @@ concurrency:
   group: poem-qc-${{ github.event.inputs.row_id }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   qc_inspection:
     name: "Gatekeeper 2: Product Quality Control"
@@ -41,28 +45,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "5. Download Rendered Video Artifact"
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: poem-video-${{ github.event.inputs.row_id }}
-          path: projects/${{ github.event.inputs.poem_id }}/output/
-
-      - name: "6. Execute Video Physical QC Inspection"
+      - name: "5. Execute Video Physical QC Inspection"
         env:
+          GH_TOKEN: ${{ github.token }}
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY || secrets.GCP_SERVICE_ACCOUNT_JSON }}
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
-          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
-          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ROW_ID: ${{ github.event.inputs.row_id }}
           POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
-          python scripts/run_poem_qc.py --row-id "${ROW_ID}"
+          python scripts/run_poem_qc.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}"
 
-      - name: "7. Final Cleanup of Video Artifacts after QC Pass"
+      - name: "6. Final Cleanup of Video Artifacts after QC Pass"
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}

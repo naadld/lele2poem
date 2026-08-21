@@ -23,6 +23,9 @@ backup/
 *.zip
 *.tar.gz
 README.md
+*HANDOFF*.md
+*.md
+
 
 # Media & Projects (100% Google Drive Storage - NO LOCAL VPS STORAGE)
 projects/

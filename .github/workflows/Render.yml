@@ -1,0 +1,75 @@
+name: Poem Video Render Pipeline (1080x1920 60fps)
+
+on:
+  workflow_dispatch:
+    inputs:
+      row_id:
+        description: 'Row ID on Google Sheet (#)'
+        required: true
+        default: '2'
+
+concurrency:
+  group: poem-render-${{ github.event.inputs.row_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  render_video:
+    name: 9:16 Vertical Video Renderer
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Dependencies & CJK Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk fonts-dejavu-core
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests gspread google-auth Pillow numpy
+
+      - name: Execute Video Render & Upload to Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY || secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          ROW_ID: ${{ github.event.inputs.row_id }}
+        run: |
+          python scripts/run_poem_render.py --row-id "${ROW_ID}"
+
+      - name: Trigger Auto-QC Workflow
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROW_ID: ${{ github.event.inputs.row_id }}
+        run: |
+          echo "⚡ Triggering ProductQC.yml on GitHub Actions..."
+          gh workflow run ProductQC.yml -f row_id="${ROW_ID}" || echo "Warning: Workflow trigger via gh CLI skipped or completed."
+
+      - name: Notify Failure to Telegram
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          CHAT_ID="${TELEGRAM_CHAT_ID:-1187577977}"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            MSG="🚨 <b>[GitHub Actions Lỗi] Pipeline Render Video Thơ Thất Bại!</b>%0A%0A• <b>Workflow:</b> <code>Render.yml</code>%0A• <b>Dòng (#):</b> #${{ github.event.inputs.row_id }}%0A• <b>Run ID:</b> <a href=\"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\">${{ github.run_id }}</a>"
+            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT_ID}" \
+              -d "text=${MSG}" \
+              -d "parse_mode=HTML" || true
+          fi

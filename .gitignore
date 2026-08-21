@@ -1,0 +1,31 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Sensitive Tokens & Credentials (ZERO-SECRET)
+*.json
+*.key
+*.pem
+*.env*
+service_account.json
+**/service_account.json
+
+# Documentation & Backups (Internal Only)
+docs/
+**/docs/
+backup/
+**/backup/
+*.zip
+*.tar.gz
+README.md
+
+# Media Render Outputs
+output/
+**/output/
+media/
+**/media/

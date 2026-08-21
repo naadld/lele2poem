@@ -1,0 +1,16 @@
+name = "lele2poem"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+account_id = "3591f5b61af3263ca14af7a1765cc954"
+
+[ai]
+binding = "AI"
+
+[vars]
+SPREADSHEET_ID = "1b6LNl7JHRiCsjK1w9VuD86GLqAfmSOtDUOm5whrGdH0"
+POEM_TAB_NAME = "poem"
+GITHUB_OWNER = "naadld"
+GITHUB_REPO = "lele2poem"
+GDRIVE_TARGET_FOLDER = "17SlqprPl46g4i7q7fmDu-a3VI2xbW8nH"
+PAGE_NAME = "Lê Lê Học Tiếng Trung - Thơ Cổ Phong"
+AI_MODEL = "@cf/meta/llama-3.3-70b-instruct"

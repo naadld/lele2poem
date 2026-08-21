@@ -1,0 +1,58 @@
+name: OmniVoice Voice Generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      row_id:
+        description: 'Row ID on Google Sheet (#)'
+        required: true
+        default: '2'
+      poem_id:
+        description: 'Poem Project ID (e.g. 01_yong_e)'
+        required: true
+        default: '01_yong_e'
+
+jobs:
+  synthesize_voice:
+    name: OmniVoice Zero-Shot Voice Cloning
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Audio & FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsndfile1
+
+      - name: Install PyTorch & OmniVoice
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch==2.4.0 torchaudio==2.4.0 --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install git+https://github.com/k2-fsa/OmniVoice.git
+          pip install requests gspread google-auth google-api-python-client
+
+      - name: Execute OmniVoice Synthesis
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          ROW_ID: ${{ github.event.inputs.row_id }}
+          POEM_ID: ${{ github.event.inputs.poem_id }}
+        run: |
+          python scripts/generate_poem_voice.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}"
+
+      - name: Trigger Gatekeeper 1 / Auto-Render
+        env:
+          CLOUDFLARE_WORKER_URL: "https://lele2poem.hothihuong113.workers.dev"
+          ROW_ID: ${{ github.event.inputs.row_id }}
+        run: |
+          curl -s -X POST "${CLOUDFLARE_WORKER_URL}/api/voice-ready" \
+            -H "Content-Type: application/json" \
+            -d "{\"row_id\": \"${ROW_ID}\", \"status\": \"Voice_Ready\"}"

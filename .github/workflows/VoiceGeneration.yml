@@ -30,7 +30,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
 
       - name: Install System Audio & FFmpeg
         run: |
@@ -42,7 +41,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch==2.4.0 torchaudio==2.4.0 --extra-index-url https://download.pytorch.org/whl/cpu
           pip install git+https://github.com/k2-fsa/OmniVoice.git
-          pip install requests gspread google-auth Pillow scipy numpy
+          pip install -r requirements.txt
 
       - name: Execute OmniVoice Synthesis
         env:

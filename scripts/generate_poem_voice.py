@@ -1,9 +1,11 @@
 """
 Script to synthesize poem voice on GitHub Actions using OmniVoice strictly.
-3-Stage Pipeline:
-  Stage 1: Model & Environment Caching (Hugging Face weights + Pip packages)
-  Stage 2: Individual Sentence Voice Generation (line_1.wav -> line_4.wav)
-  Stage 3: Master Audio Merge (Combining 4 lines with natural poetic pauses into full_poem.wav) & Google Drive Upload
+Supports modular execution:
+  --action synthesize : Generates line_1.wav -> line_4.wav via OmniVoice
+  --action merge      : Concatenates lines with poetic pauses into full_poem.wav
+  --action upload     : Uploads all generated wav files to Google Drive project folder
+  --action summary    : Emits Markdown summary to $GITHUB_STEP_SUMMARY
+  --action all        : Executes all steps sequentially
 """
 import os
 import sys
@@ -25,129 +27,176 @@ from src.drive_manager import DriveManager
 from src.gsheet_manager import PoemGSheetManager
 
 
-def merge_sentence_audios_to_full_poem(
-    line_audio_paths: list,
-    output_full_path: str,
-    pause_seconds: float = 0.55,
-    sample_rate: int = 24000
-) -> str:
-    """
-    Stage 3: Merges all generated line WAV files with natural poetic pause gaps
-    into one final master full_poem.wav.
-    """
-    logger.info(f"[STAGE-3 MERGE] Merging {len(line_audio_paths)} sentence audios (pause: {pause_seconds}s)...")
-    combined_audio = []
-    pause_samples = int(pause_seconds * sample_rate)
-    silence = np.zeros(pause_samples, dtype=np.int16)
-
-    for idx, path in enumerate(line_audio_paths):
-        if not os.path.exists(path):
-            logger.warning(f"Audio file missing for merge: {path}")
-            continue
-        sr, data = wavfile.read(path)
-        # Ensure 1D int16
-        data = np.squeeze(data).flatten().astype(np.int16)
-        combined_audio.append(data)
-        if idx < len(line_audio_paths) - 1:
-            combined_audio.append(silence)
-
-    if combined_audio:
-        master_audio = np.concatenate(combined_audio)
-        wavfile.write(output_full_path, sample_rate, master_audio)
-        logger.info(f"[STAGE-3 MERGE] Master full poem audio saved: {output_full_path} ({len(master_audio)/sample_rate:.2f}s)")
-        return output_full_path
-    else:
-        raise RuntimeError("No audio clips available to merge.")
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--row-id", type=str, default="2", help="Row ID on Google Sheet (#)")
-    parser.add_argument("--poem-id", type=str, default="", help="Poem Project ID (optional)")
-    parser.add_argument("--folder-id", type=str, default="", help="Google Drive Project Folder ID (optional)")
-    args = parser.parse_args()
-
-    row_id = args.row_id.replace("#", "").strip()
-    logger.info(f"=== OMNIVOICE VOICE PIPELINE FOR ROW #{row_id} ===")
-
-    # Reference audio sample
-    voice_sample = os.path.join(BASE_DIR, "assets", "Vegetarian Wolf.wav")
-    if not os.path.exists(voice_sample):
-        raise FileNotFoundError(f"Missing required reference voice sample: {voice_sample}")
-
-    tmp_audio_dir = os.path.join(BASE_DIR, "temp_audio")
-    os.makedirs(tmp_audio_dir, exist_ok=True)
-
-    # 1. Fetch Dynamic Data from Google Sheet
+def get_poem_metadata(row_id: str, custom_poem_id: str = "", custom_folder_id: str = ""):
+    """Fetch poem details from Google Sheet or fallback."""
     gsheet_mgr = PoemGSheetManager()
-    drive_mgr = DriveManager()
-    
     poem_data = gsheet_mgr.get_poem_by_row_id(row_id)
     
     lines = []
-    folder_id = args.folder_id or ""
-    poem_id = args.poem_id or ""
+    folder_id = custom_folder_id or ""
+    poem_id = custom_poem_id or ""
+    topic = "《咏鹅》"
+    level = "HSK 1-2"
 
     if poem_data:
-        logger.info(f"[GSHEET] Loaded Poem: '{poem_data.get('topic')}' (Level: {poem_data.get('level')})")
+        topic = poem_data.get("topic", topic)
+        level = poem_data.get("level", level)
         lines = [l for l in poem_data.get("lines", []) if l.get("hanzi")]
         if not folder_id:
             folder_id = poem_data.get("folder_id", "")
         if not poem_id:
             poem_id = poem_data.get("poem_id", "")
 
-    # Fallback to local default if offline
     if not lines:
-        logger.warning(f"Using fallback dataset for Row #{row_id}")
         POEM_FALLBACK = {
             "2": [
-                {"hanzi": "鹅，鹅，鹅", "pinyin": "é, é, é"},
-                {"hanzi": "曲项向天歌", "pinyin": "qū xiàng xiàng tiān gē"},
-                {"hanzi": "白毛浮绿水", "pinyin": "bái máo fú lǜ shuǐ"},
-                {"hanzi": "红掌拨清波", "pinyin": "hóng zhǎng bō qīng bō"}
+                {"hanzi": "鹅，鹅，鹅", "pinyin": "é, é, é", "vietnamese": "Thiên nga, thiên nga"},
+                {"hanzi": "曲项向天歌", "pinyin": "qū xiàng xiàng tiān gē", "vietnamese": "Vươn cổ cất tiếng hót"},
+                {"hanzi": "白毛浮绿水", "pinyin": "bái máo fú lǜ shuǐ", "vietnamese": "Lông trắng nổi trên nước biếc"},
+                {"hanzi": "红掌拨清波", "pinyin": "hóng zhǎng bō qīng bō", "vietnamese": "Mái chèo hồng rẽ sóng trong"}
             ]
         }
         lines = POEM_FALLBACK.get(row_id, POEM_FALLBACK["2"])
         if not folder_id and row_id == "2":
             folder_id = "1Fzyf9GHFg9fmWIQt4C-vvWKuF2Z5__gI"
 
-    logger.info(f"Loaded {len(lines)} poem lines. Drive Target: {folder_id or 'None'}")
+    if not poem_id:
+        poem_id = f"{int(row_id):02d}_poem"
 
-    # =========================================================================
-    # KHÂU 2: CHẠY VOICE GENERATION TỪNG CÂU ĐƠN LẺ
-    # =========================================================================
-    logger.info(">>> KHÂU 2: Sinh giọng ngâm OmniVoice cho từng câu thơ đơn lẻ...")
-    generated_line_paths = []
+    return {
+        "row_id": row_id,
+        "poem_id": poem_id,
+        "topic": topic,
+        "level": level,
+        "lines": lines,
+        "folder_id": folder_id
+    }
 
+
+def step_synthesize(meta: dict, tmp_dir: str):
+    """Step: Synthesize 4 sentence audio clips."""
+    voice_sample = os.path.join(BASE_DIR, "assets", "Vegetarian Wolf.wav")
+    if not os.path.exists(voice_sample):
+        raise FileNotFoundError(f"Missing voice sample: {voice_sample}")
+
+    lines = meta["lines"]
+    logger.info(f"🎙️ [BƯỚC 1: SINH CÂU LẺ] Bắt đầu sinh {len(lines)} câu thơ đơn lẻ...")
+    
     for idx, item in enumerate(lines, start=1):
-        fname = f"line_{idx}.wav"
-        out_line = os.path.join(tmp_audio_dir, fname)
         text = item.get("hanzi", "")
-        logger.info(f"[KHÂU 2] Đang ngâm câu {idx}: '{text}'...")
-        generate_poem_audio_omnivoice_strict(text, out_line, voice_sample)
-        generated_line_paths.append(out_line)
+        fname = f"line_{idx}.wav"
+        out_path = os.path.join(tmp_dir, fname)
+        print(f"::group::🎙️ Đang ngâm Câu {idx}: '{text}' ({item.get('pinyin')})")
+        generate_poem_audio_omnivoice_strict(text, out_path, voice_sample)
+        print("::endgroup::")
+        logger.info(f"✅ Đã sinh xong Câu {idx} -> {fname}")
 
-        # Upload line audio to Drive
-        if folder_id:
-            drive_mgr.upload_file(out_line, fname, folder_id, mime_type="audio/wav")
 
-    # =========================================================================
-    # KHÂU 3: GỘP CHUNG LẠI THÀNH 1 FILE FINAL (full_poem.wav)
-    # =========================================================================
-    logger.info(">>> KHÂU 3: Gộp chung các câu ngâm thành 1 file Master Final (full_poem.wav)...")
-    out_full = os.path.join(tmp_audio_dir, "full_poem.wav")
-    merge_sentence_audios_to_full_poem(
-        line_audio_paths=generated_line_paths,
-        output_full_path=out_full,
-        pause_seconds=0.55,
-        sample_rate=24000
-    )
+def step_merge(meta: dict, tmp_dir: str, pause_seconds: float = 0.55):
+    """Step: Merge sentence audios into full_poem.wav."""
+    lines = meta["lines"]
+    line_paths = [os.path.join(tmp_dir, f"line_{i}.wav") for i in range(1, len(lines) + 1)]
+    out_full = os.path.join(tmp_dir, "full_poem.wav")
 
-    # Upload master full poem audio to Drive
-    if folder_id:
-        drive_mgr.upload_file(out_full, "full_poem.wav", folder_id, mime_type="audio/wav")
+    logger.info(f"🎼 [BƯỚC 2: GỘP AUDIO MASTER] Đang gộp {len(line_paths)} câu thơ thành 1 file final...")
+    combined = []
+    sr = 24000
+    silence = np.zeros(int(pause_seconds * sr), dtype=np.int16)
 
-    logger.info("✨ [HOÀN TẤT 3 KHÂU] Voice generation & Master audio merge uploaded to Google Drive 100%!")
+    for idx, path in enumerate(line_paths):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Missing line audio for merge: {path}")
+        s_rate, data = wavfile.read(path)
+        sr = s_rate
+        data = np.squeeze(data).flatten().astype(np.int16)
+        combined.append(data)
+        if idx < len(line_paths) - 1:
+            combined.append(silence)
+
+    master = np.concatenate(combined)
+    wavfile.write(out_full, sr, master)
+    dur = len(master) / sr
+    logger.info(f"✨ [BƯỚC 2 HOÀN TẤT] File Master: {out_full} (Thời lượng: {dur:.2f}s, {len(master)} samples)")
+
+
+def step_upload(meta: dict, tmp_dir: str):
+    """Step: Upload all generated wav files to Google Drive."""
+    folder_id = meta.get("folder_id", "")
+    if not folder_id:
+        logger.warning("No Google Drive folder ID found. Skipping upload.")
+        return
+
+    drive_mgr = DriveManager()
+    logger.info(f"☁️ [BƯỚC 3: UPLOAD DRIVE] Tải toàn bộ audio lên Drive Folder ID: {folder_id}...")
+    
+    files_to_upload = [f"line_{i}.wav" for i in range(1, len(meta["lines"]) + 1)] + ["full_poem.wav"]
+    for fname in files_to_upload:
+        p = os.path.join(tmp_dir, fname)
+        if os.path.exists(p):
+            uploaded = drive_mgr.upload_file(p, fname, folder_id, mime_type="audio/wav")
+            if uploaded:
+                logger.info(f"✅ Uploaded {fname} -> Drive ID: {uploaded.get('id')}")
+
+
+def step_summary(meta: dict, tmp_dir: str):
+    """Step: Write GitHub Actions Markdown Summary."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    lines = meta["lines"]
+    md = [
+        f"## 🎙️ Kết Quả Sinh Giọng Ngâm OmniVoice: {meta['topic']}",
+        f"- **Dòng (#):** `#{meta['row_id']}`",
+        f"- **Dự án:** `{meta['poem_id']}`",
+        f"- **Cấp độ:** `{meta['level']}`",
+        f"- **Google Drive Folder ID:** `{meta['folder_id']}`",
+        "",
+        "### 📑 Chi Tiết Các File Audio",
+        "| File | Hán Tự (简体) | Pinyin | Dịch Nghĩa | Kích Thước |",
+        "| :--- | :--- | :--- | :--- | :--- |"
+    ]
+
+    for i, item in enumerate(lines, start=1):
+        fname = f"line_{i}.wav"
+        fpath = os.path.join(tmp_dir, fname)
+        sz = f"{os.path.getsize(fpath)/1024:.1f} KB" if os.path.exists(fpath) else "N/A"
+        md.append(f"| `line_{i}.wav` | **{item.get('hanzi')}** | `{item.get('pinyin')}` | *{item.get('vietnamese')}* | {sz} |")
+
+    full_path = os.path.join(tmp_dir, "full_poem.wav")
+    full_sz = f"{os.path.getsize(full_path)/1024:.1f} KB" if os.path.exists(full_path) else "N/A"
+    md.append(f"| **`full_poem.wav`** | **Toàn bài thơ (Master Final)** | - | - | **{full_sz}** |")
+    md.append("")
+    md.append("> 🚀 **Trạng thái:** Tự động kích hoạt Render Pipeline 9:16 (1080x1920 60fps).")
+
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(md) + "\n")
+    logger.info("Generated GitHub Step Summary.")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--row-id", type=str, default="2", help="Row ID (#)")
+    parser.add_argument("--poem-id", type=str, default="", help="Poem Project ID")
+    parser.add_argument("--folder-id", type=str, default="", help="Google Drive Folder ID")
+    parser.add_argument("--action", type=str, default="all", choices=["synthesize", "merge", "upload", "summary", "all"], help="Action step to run")
+    args = parser.parse_args()
+
+    row_id = args.row_id.replace("#", "").strip()
+    meta = get_poem_metadata(row_id, args.poem_id, args.folder_id)
+
+    tmp_dir = os.path.join(BASE_DIR, "temp_audio")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    action = args.action.lower()
+    if action in ["synthesize", "all"]:
+        step_synthesize(meta, tmp_dir)
+    if action in ["merge", "all"]:
+        step_merge(meta, tmp_dir)
+    if action in ["upload", "all"]:
+        step_upload(meta, tmp_dir)
+    if action in ["summary", "all"]:
+        step_summary(meta, tmp_dir)
 
 
 if __name__ == "__main__":

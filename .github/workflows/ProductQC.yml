@@ -18,7 +18,7 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 jobs:
   qc_inspection:
@@ -56,13 +56,3 @@ jobs:
           POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
           python scripts/run_poem_qc.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}"
-
-      - name: "6. Final Cleanup of Video Artifacts after QC Pass"
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ROW_ID: ${{ github.event.inputs.row_id }}
-          POEM_ID: ${{ github.event.inputs.poem_id }}
-        run: |
-          echo "🧹 QC đã thông qua, đang dọn dẹp video artifact trên GitHub..."
-          python scripts/cleanup_artifacts.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}" --delete-video || echo "Cleanup completed."

@@ -71,7 +71,7 @@ jobs:
         with:
           name: poem-video-${{ github.event.inputs.row_id }}
           path: projects/${{ github.event.inputs.poem_id }}/output/
-          retention-days: 7
+          retention-days: 90
 
       - name: "8. Cleanup Residual GitHub Artifacts"
         if: success()

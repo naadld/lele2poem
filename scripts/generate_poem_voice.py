@@ -185,7 +185,8 @@ def main():
     row_id = args.row_id.replace("#", "").strip()
     meta = get_poem_metadata(row_id, args.poem_id, args.folder_id)
 
-    tmp_dir = os.path.join(BASE_DIR, "temp_audio")
+    # Audio save directory inside project
+    tmp_dir = os.path.join(BASE_DIR, "projects", meta["poem_id"], "audio")
     os.makedirs(tmp_dir, exist_ok=True)
 
     action = args.action.lower()

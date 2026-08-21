@@ -1,4 +1,4 @@
-name: Poem Video Render Pipeline (1080x1920 60fps)
+name: "Poem Video Render Pipeline (1080x1920 60fps)"
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
         description: 'Row ID on Google Sheet (#)'
         required: true
         default: '2'
+      poem_id:
+        description: 'Poem Project ID (e.g. 01_yong_e)'
+        required: false
+        default: '01_yong_e'
 
 concurrency:
   group: poem-render-${{ github.event.inputs.row_id }}
@@ -18,47 +22,65 @@ permissions:
 
 jobs:
   render_video:
-    name: 9:16 Vertical Video Renderer
+    name: "9:16 Vertical Video Renderer"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
 
     steps:
-      - name: Checkout Repository
+      - name: "1. Checkout Repository"
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: "2. Set up Python 3.11"
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install System Dependencies & CJK Fonts
+      - name: "3. Install FFmpeg & CJK Vietnamese Fonts"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk fonts-dejavu-core
 
-      - name: Install Python Dependencies
+      - name: "4. Install Python Dependencies"
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Execute Video Render & Upload to Google Drive
+      - name: "5. Download Voice Artifacts"
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: poem-voice-${{ github.event.inputs.row_id }}
+          path: projects/${{ github.event.inputs.poem_id }}/audio/
+
+      - name: "6. Render 9:16 Video (1080x1920 60fps + 3-Tier Karaoke)"
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY || secrets.GCP_SERVICE_ACCOUNT_JSON }}
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           ROW_ID: ${{ github.event.inputs.row_id }}
+          POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
-          python scripts/run_poem_render.py --row-id "${ROW_ID}"
+          python scripts/run_poem_render.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}"
 
-      - name: Trigger Auto-QC Workflow
+      - name: "7. Upload Rendered Video as GitHub Artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poem-video-${{ github.event.inputs.row_id }}
+          path: projects/${{ github.event.inputs.poem_id }}/output/
+          retention-days: 90
+
+      - name: "8. Trigger Product QC Pipeline (ProductQC.yml)"
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           ROW_ID: ${{ github.event.inputs.row_id }}
+          POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
-          echo "⚡ Triggering ProductQC.yml on GitHub Actions..."
-          gh workflow run ProductQC.yml -f row_id="${ROW_ID}" || echo "Warning: Workflow trigger via gh CLI skipped or completed."
+          echo "⚡ Tự động kích hoạt ProductQC.yml cho Dòng #${ROW_ID}..."
+          gh workflow run ProductQC.yml -f row_id="${ROW_ID}" -f poem_id="${POEM_ID}" || echo "Warning: QC trigger completed or skipped."
 
-      - name: Notify Failure to Telegram
+      - name: "9. Notify Failure to Telegram"
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

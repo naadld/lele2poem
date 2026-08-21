@@ -72,14 +72,12 @@ jobs:
         run: |
           python scripts/generate_poem_voice.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}" --action merge
 
-      - name: "8. Upload Voice Assets to Google Drive"
-        env:
-          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY || secrets.GCP_SERVICE_ACCOUNT_JSON }}
-          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-          ROW_ID: ${{ github.event.inputs.row_id }}
-          POEM_ID: ${{ github.event.inputs.poem_id }}
-        run: |
-          python scripts/generate_poem_voice.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}" --action upload
+      - name: "8. Upload Voice Assets as GitHub Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: poem-voice-${{ github.event.inputs.row_id }}
+          path: projects/${{ github.event.inputs.poem_id }}/audio/
+          retention-days: 90
 
       - name: "9. Generate GitHub Step Summary Dashboard"
         if: always()
@@ -94,6 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ROW_ID: ${{ github.event.inputs.row_id }}
+          POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
           echo "⚡ Tự động kích hoạt Render.yml cho Dòng #${ROW_ID}..."
-          gh workflow run Render.yml -f row_id="${ROW_ID}" || echo "Warning: Render dispatch completed or skipped."
+          gh workflow run Render.yml -f row_id="${ROW_ID}" -f poem_id="${POEM_ID}" || echo "Warning: Render dispatch completed or skipped."

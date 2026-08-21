@@ -137,8 +137,8 @@ def main():
             "| :--- | :--- | :--- | :--- |",
             f"| **Độ phân giải** | `{metrics['width']}x{metrics['height']}` | `1080x1920` (9:16) | {'✅ Đạt' if metrics['width']==1080 and metrics['height']==1920 else '❌ Lỗi'} |",
             f"| **Tốc độ khung hình** | `{metrics['fps']} fps` | `60.0 fps` (Min 58) | {'✅ Đạt' if metrics['fps']>=58.0 else '❌ Lỗi'} |",
-            f"| **Thời lượng** | `{metrics['duration']:.2f}s` | $\ge 5.0\\text{s}$ | {'✅ Đạt' if metrics['duration']>=5.0 else '❌ Lỗi'} |",
-            f"| **Dung lượng file** | `{metrics['file_size']/1024/1024:.2f} MB` | $\ge 1.0\\text{ MB}$ | {'✅ Đạt' if metrics['file_size']>=1000000 else '❌ Lỗi'} |",
+            f"| **Thời lượng** | `{metrics['duration']:.2f}s` | &ge; 5.0s | {'✅ Đạt' if metrics['duration']>=5.0 else '❌ Lỗi'} |",
+            f"| **Dung lượng file** | `{metrics['file_size']/1024/1024:.2f} MB` | &ge; 1.0 MB | {'✅ Đạt' if metrics['file_size']>=1000000 else '❌ Lỗi'} |",
             f"| **Âm thanh** | `{metrics['audio_codec'] or 'Synced'}` | Stereo AAC/MP3 | {'✅ Đạt' if metrics['has_audio'] else '❌ Mất tiếng'} |",
             ""
         ]

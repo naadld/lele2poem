@@ -24,8 +24,15 @@ backup/
 *.tar.gz
 README.md
 
-# Media Render Outputs
+# Media & Projects (100% Google Drive Storage - NO LOCAL VPS STORAGE)
+projects/
+**/projects/
 output/
 **/output/
 media/
 **/media/
+assets/*.wav
+assets/*.mp3
+assets/*.jpeg
+assets/*.jpg
+assets/*.png

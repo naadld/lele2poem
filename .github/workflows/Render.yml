@@ -45,32 +45,45 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "5. Download Voice Artifacts"
+      - name: "5. Download Voice Artifacts (poem-voice-${{ github.event.inputs.row_id }})"
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: poem-voice-${{ github.event.inputs.row_id }}
           path: projects/${{ github.event.inputs.poem_id }}/audio/
 
-      - name: "6. Render 9:16 Video (1080x1920 60fps + 3-Tier Karaoke)"
+      - name: "6. Render 9:16 Video (1080x1920 60fps) & Upload Google Drive (OAuth 2.0)"
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY || secrets.GCP_SERVICE_ACCOUNT_JSON }}
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           ROW_ID: ${{ github.event.inputs.row_id }}
           POEM_ID: ${{ github.event.inputs.poem_id }}
         run: |
           python scripts/run_poem_render.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}"
 
-      - name: "7. Upload Rendered Video as GitHub Artifact"
+      - name: "7. Save Rendered Video as GitHub Artifact (poem-video-${{ github.event.inputs.row_id }})"
         if: always()
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: poem-video-${{ github.event.inputs.row_id }}
           path: projects/${{ github.event.inputs.poem_id }}/output/
-          retention-days: 90
+          retention-days: 7
 
-      - name: "8. Trigger Product QC Pipeline (ProductQC.yml)"
+      - name: "8. Cleanup Residual GitHub Artifacts"
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROW_ID: ${{ github.event.inputs.row_id }}
+          POEM_ID: ${{ github.event.inputs.poem_id }}
+        run: |
+          echo "🧹 Đang dọn dẹp các artifact audio tạm thời trên GitHub..."
+          python scripts/cleanup_artifacts.py --row-id "${ROW_ID}" --poem-id "${POEM_ID}" || echo "Artifact cleanup completed."
+
+      - name: "9. Trigger Product QC Pipeline (ProductQC.yml)"
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,7 +93,7 @@ jobs:
           echo "⚡ Tự động kích hoạt ProductQC.yml cho Dòng #${ROW_ID}..."
           gh workflow run ProductQC.yml -f row_id="${ROW_ID}" -f poem_id="${POEM_ID}" || echo "Warning: QC trigger completed or skipped."
 
-      - name: "9. Notify Failure to Telegram"
+      - name: "10. Notify Failure to Telegram"
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

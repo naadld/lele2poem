@@ -1,8 +1,8 @@
 """
 Script to execute Poem Video Rendering on GitHub Actions Runner.
-1. Downloads images and audio from Google Drive project folder
+1. Downloads images and audio from Google Drive project folder / Artifacts
 2. Renders 9:16 Vertical Video (1080x1920 60fps) with 3-Tier Karaoke
-3. Uploads final MP4 to Google Drive project folder
+3. Uploads final MP4 to Google Drive project folder using GDriveUploader (Method 3: OAuth 2.0)
 4. Updates Google Sheet row status to 'Video'
 """
 import os
@@ -18,6 +18,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.drive_manager import DriveManager
+from src.gdrive_uploader import GDriveUploader
 from src.gsheet_manager import PoemGSheetManager
 from src.poem_video_renderer import render_full_poem_video
 
@@ -61,8 +62,8 @@ def main():
     os.makedirs(audio_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
 
-    # 1. Download all assets from Google Drive folder
-    logger.info(f"Downloading project assets from Google Drive folder: {folder_id}...")
+    # 1. Download missing image assets from Google Drive folder
+    logger.info(f"Checking project assets from Google Drive folder: {folder_id}...")
     drive_files = drive_mgr.list_files_in_folder(folder_id)
     logger.info(f"Found {len(drive_files)} file(s) in Drive folder.")
 
@@ -73,10 +74,12 @@ def main():
             continue
         if name.endswith(".jpeg") or name.endswith(".jpg") or name.endswith(".png"):
             dest = os.path.join(img_dir, name)
-            drive_mgr.download_file_by_id(fid, dest)
+            if not os.path.exists(dest):
+                drive_mgr.download_file_by_id(fid, dest)
         elif name.endswith(".wav") or name.endswith(".mp3"):
             dest = os.path.join(audio_dir, name)
-            drive_mgr.download_file_by_id(fid, dest)
+            if not os.path.exists(dest):
+                drive_mgr.download_file_by_id(fid, dest)
 
     # 2. Render Video
     output_filename = f"{poem_id}.mp4"
@@ -92,22 +95,34 @@ def main():
         cover_duration=0.75
     )
 
-    # 3. Upload rendered MP4 to Google Drive Project Folder
+    # 3. Upload rendered MP4 to Google Drive Project Folder using GDriveUploader (OAuth 2.0)
+    video_url = ""
     if args.upload_gdrive and os.path.exists(output_mp4_path):
-        logger.info(f"Uploading {output_filename} to Google Drive folder: {folder_id}...")
-        uploaded = drive_mgr.upload_file(
-            local_path=output_mp4_path,
-            filename=output_filename,
-            folder_id=folder_id,
-            mime_type="video/mp4"
-        )
-        if uploaded and uploaded.get("webViewLink"):
-            video_url = uploaded.get("webViewLink")
-            logger.info(f"Google Drive Video Link: {video_url}")
-            
+        logger.info(f"Uploading {output_filename} to Google Drive folder: {folder_id} via GDriveUploader...")
+        try:
+            uploader = GDriveUploader(folder_id=folder_id)
+            uploaded = uploader.upload_file(output_mp4_path, output_filename, mimetype="video/mp4")
+            if uploaded and uploaded.get("webViewLink"):
+                video_url = uploaded.get("webViewLink")
+                logger.info(f"✅ Google Drive Video Link: {video_url}")
+        except Exception as ue:
+            logger.warning(f"GDriveUploader error: {ue}. Falling back to DriveManager...")
+            uploaded = drive_mgr.upload_file(
+                local_path=output_mp4_path,
+                filename=output_filename,
+                folder_id=folder_id,
+                mime_type="video/mp4"
+            )
+            if uploaded and uploaded.get("webViewLink"):
+                video_url = uploaded.get("webViewLink")
+
+        if video_url:
             # 4. Update Google Sheet
             gsheet_mgr.update_video_info(row_id, video_url, status="Video")
             logger.info(f"Updated Google Sheet Row #{row_id} with Status: 'Video'")
+        else:
+            gsheet_mgr.update_video_info(row_id, f"https://github.com/naadld/lele2poem/actions", status="Video")
+            logger.info(f"Updated Google Sheet Row #{row_id} with Artifact Status: 'Video'")
 
     logger.info("=== Poem Video Render Pipeline Completed Successfully! ===")
 
